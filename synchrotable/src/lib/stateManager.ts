@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   Table,
   StoveThread,
@@ -14,6 +17,8 @@ import {
 } from './types';
 import { INITIAL_INVENTORY, INVENTORY_THRESHOLDS, MENU_ITEMS } from './data';
 import { getRestockAIEngine } from './restockAI';
+
+const STATE_SNAPSHOT_FILE = path.join(os.tmpdir(), 'dineease_synchro_state_v2.json');
 
 const tableLabelOf = (n: number) => (n > 0 ? `Table ${n}` : n === 0 ? 'Take away' : 'Waiting list');
 const genUid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
@@ -48,12 +53,59 @@ export class SynchroStateManager {
 
   private broadcastCallback?: (event: string, data: any) => void;
   private timerInterval?: NodeJS.Timeout;
+  private lastSyncedUpdatedAt = 0;
 
   constructor() {
     this.initializeTables();
     this.initializeStoves();
     this.syncLowStockAlerts();
+    this.loadSnapshotIfNewer();
     this.startCookTimerTicker();
+  }
+
+  private saveSnapshot() {
+    try {
+      const now = Date.now();
+      this.lastSyncedUpdatedAt = now;
+      const payload = {
+        updatedAt: now,
+        tables: this.tables,
+        stoves: this.stoves,
+        inventory: this.inventory,
+        orders: this.orders,
+        revenue: this.revenue,
+        lowStockAlerts: this.lowStockAlerts,
+        waiterNotifications: this.waiterNotifications,
+        inventoryDeductions: this.inventoryDeductions,
+        startedTicketIds: Array.from(this.startedTicketIds),
+      };
+      fs.writeFileSync(STATE_SNAPSHOT_FILE, JSON.stringify(payload));
+    } catch {
+      // Ignore filesystem errors in read-only environments
+    }
+  }
+
+  public loadSnapshotIfNewer() {
+    try {
+      if (!fs.existsSync(STATE_SNAPSHOT_FILE)) return;
+      const raw = fs.readFileSync(STATE_SNAPSHOT_FILE, 'utf8');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.updatedAt === 'number' && parsed.updatedAt > this.lastSyncedUpdatedAt) {
+        this.lastSyncedUpdatedAt = parsed.updatedAt;
+        if (Array.isArray(parsed.tables)) this.tables = parsed.tables;
+        if (Array.isArray(parsed.stoves)) this.stoves = parsed.stoves;
+        if (parsed.inventory) this.inventory = parsed.inventory;
+        if (Array.isArray(parsed.orders)) this.orders = parsed.orders;
+        if (typeof parsed.revenue === 'number') this.revenue = parsed.revenue;
+        if (Array.isArray(parsed.lowStockAlerts)) this.lowStockAlerts = parsed.lowStockAlerts;
+        if (Array.isArray(parsed.waiterNotifications)) this.waiterNotifications = parsed.waiterNotifications;
+        if (Array.isArray(parsed.inventoryDeductions)) this.inventoryDeductions = parsed.inventoryDeductions;
+        if (Array.isArray(parsed.startedTicketIds)) this.startedTicketIds = new Set(parsed.startedTicketIds);
+      }
+    } catch {
+      // Ignore parse errors
+    }
   }
 
   private syncLowStockAlerts() {
@@ -72,6 +124,7 @@ export class SynchroStateManager {
   }
 
   private emitState() {
+    this.saveSnapshot();
     if (this.broadcastCallback) {
       this.broadcastCallback('synchro_state_updated', this.getState());
     }
@@ -98,6 +151,7 @@ export class SynchroStateManager {
   }
 
   public getState(): SynchroGameState {
+    this.loadSnapshotIfNewer();
     return {
       tables: this.tables,
       stoves: this.stoves,
