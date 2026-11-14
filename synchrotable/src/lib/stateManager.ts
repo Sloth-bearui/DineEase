@@ -17,8 +17,9 @@ import {
 } from './types';
 import { INITIAL_INVENTORY, INVENTORY_THRESHOLDS, MENU_ITEMS } from './data';
 import { getRestockAIEngine } from './restockAI';
+import { mergeSynchroStates } from './synchroMerge';
 
-const STATE_SNAPSHOT_FILE = path.join(os.tmpdir(), 'dineease_synchro_state_v2.json');
+const STATE_SNAPSHOT_FILE = path.join(os.tmpdir(), 'dineease_synchro_state_v4.json');
 
 const tableLabelOf = (n: number) => (n > 0 ? `Table ${n}` : n === 0 ? 'Take away' : 'Waiting list');
 const genUid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
@@ -54,6 +55,8 @@ export class SynchroStateManager {
   private broadcastCallback?: (event: string, data: any) => void;
   private timerInterval?: NodeJS.Timeout;
   private lastSyncedUpdatedAt = 0;
+  private inventoryUpdatedAt = 0;
+  private resetEpoch = 0;
 
   constructor() {
     this.initializeTables();
@@ -63,12 +66,47 @@ export class SynchroStateManager {
     this.startCookTimerTicker();
   }
 
+  public absorbClientState(incoming?: Partial<SynchroGameState> | null) {
+    if (!incoming || !Array.isArray(incoming.tables)) return;
+    const merged = mergeSynchroStates(this.getRawState(), incoming);
+    if (!merged) return;
+    this.tables = merged.tables;
+    this.inventory = merged.inventory;
+    this.orders = merged.orders;
+    this.revenue = merged.revenue ?? 0;
+    this.inventoryDeductions = merged.inventoryDeductions ?? [];
+    this.startedTicketIds = new Set(this.inventoryDeductions.map((d) => d.ticketId));
+    this.lastSyncedUpdatedAt = Math.max(this.lastSyncedUpdatedAt, merged.updatedAt ?? 0);
+    this.inventoryUpdatedAt = Math.max(this.inventoryUpdatedAt, merged.inventoryUpdatedAt ?? 0);
+    this.resetEpoch = Math.max(this.resetEpoch, merged.resetEpoch ?? 0);
+    this.syncLowStockAlerts();
+  }
+
+  private getRawState(): SynchroGameState {
+    return {
+      tables: this.tables,
+      stoves: this.stoves,
+      inventory: this.inventory,
+      orders: this.orders,
+      lowStockAlerts: this.lowStockAlerts,
+      waiterNotifications: this.waiterNotifications,
+      aiPrediction: this.aiPrediction,
+      revenue: this.revenue,
+      inventoryDeductions: this.inventoryDeductions,
+      updatedAt: this.lastSyncedUpdatedAt,
+      inventoryUpdatedAt: this.inventoryUpdatedAt,
+      resetEpoch: this.resetEpoch,
+    };
+  }
+
   private saveSnapshot() {
     try {
       const now = Date.now();
       this.lastSyncedUpdatedAt = now;
       const payload = {
         updatedAt: now,
+        inventoryUpdatedAt: this.inventoryUpdatedAt,
+        resetEpoch: this.resetEpoch,
         tables: this.tables,
         stoves: this.stoves,
         inventory: this.inventory,
@@ -92,16 +130,7 @@ export class SynchroStateManager {
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.updatedAt === 'number' && parsed.updatedAt > this.lastSyncedUpdatedAt) {
-        this.lastSyncedUpdatedAt = parsed.updatedAt;
-        if (Array.isArray(parsed.tables)) this.tables = parsed.tables;
-        if (Array.isArray(parsed.stoves)) this.stoves = parsed.stoves;
-        if (parsed.inventory) this.inventory = parsed.inventory;
-        if (Array.isArray(parsed.orders)) this.orders = parsed.orders;
-        if (typeof parsed.revenue === 'number') this.revenue = parsed.revenue;
-        if (Array.isArray(parsed.lowStockAlerts)) this.lowStockAlerts = parsed.lowStockAlerts;
-        if (Array.isArray(parsed.waiterNotifications)) this.waiterNotifications = parsed.waiterNotifications;
-        if (Array.isArray(parsed.inventoryDeductions)) this.inventoryDeductions = parsed.inventoryDeductions;
-        if (Array.isArray(parsed.startedTicketIds)) this.startedTicketIds = new Set(parsed.startedTicketIds);
+        this.absorbClientState(parsed);
       }
     } catch {
       // Ignore parse errors
@@ -152,17 +181,7 @@ export class SynchroStateManager {
 
   public getState(): SynchroGameState {
     this.loadSnapshotIfNewer();
-    return {
-      tables: this.tables,
-      stoves: this.stoves,
-      inventory: this.inventory,
-      orders: this.orders,
-      lowStockAlerts: this.lowStockAlerts,
-      waiterNotifications: this.waiterNotifications,
-      aiPrediction: this.aiPrediction,
-      revenue: this.revenue,
-      inventoryDeductions: this.inventoryDeductions,
-    };
+    return this.getRawState();
   }
 
   // 1. Table QR Scan / Guest Arrival with Phone Device Fingerprint
@@ -191,6 +210,7 @@ export class SynchroStateManager {
 
     table.status = 'occupied';
     table.occupiedAt = table.occupiedAt || new Date().toISOString();
+    table.tableUpdatedAt = Date.now();
 
     if (!table.activeDevices) {
       table.activeDevices = [];
@@ -230,11 +250,14 @@ export class SynchroStateManager {
     const table = this.tables.find((t) => t.id === tableId || `T-${t.number}` === tableId || `${t.number}` === tableId);
     if (!table) return false;
 
+    const now = Date.now();
     table.status = 'vacant';
     table.guestCount = 0;
     table.activeOrderId = null;
     table.occupiedAt = null;
     table.activeDevices = [];
+    table.tableUpdatedAt = now;
+    table.clearedAt = now;
     table.uid = genUid(`T${table.number}`); // old QR codes stop working
     // Close this dining session: drop its orders so the next party starts fresh
     this.orders = this.orders.filter((o) => o.tableId !== table.id);
@@ -258,12 +281,15 @@ export class SynchroStateManager {
   public handleLeaveTable(tableId: string, deviceId: string): boolean {
     const table = this.tables.find((t) => t.id === tableId || `T-0${t.number}` === tableId || `${t.number}` === tableId);
     if (!table) return false;
+    const now = Date.now();
     table.activeDevices = (table.activeDevices || []).filter((d) => d.deviceId !== deviceId);
+    table.tableUpdatedAt = now;
     const hasOrders = this.orders.some((o) => o.tableId === table.id);
     if (table.activeDevices.length === 0 && !hasOrders) {
       table.status = 'vacant';
       table.guestCount = 0;
       table.occupiedAt = null;
+      table.clearedAt = now;
       table.uid = genUid(`T${table.number}`);
     }
     this.emitState();
@@ -375,6 +401,7 @@ export class SynchroStateManager {
     table.status = 'occupied';
     table.guestCount = Math.max(table.guestCount, 1);
     table.occupiedAt = table.occupiedAt || new Date().toISOString();
+    table.tableUpdatedAt = Date.now();
 
     // Student validation
     const studentCheck = email ? this.validateStudentEmail(email) : { isValid: false, discountPercentage: 0 };
@@ -735,37 +762,45 @@ export class SynchroStateManager {
       }
     }
 
+    this.inventoryUpdatedAt = Date.now();
     this.syncLowStockAlerts();
     this.emitState();
     return { success: true, record };
   }
 
-  // Chef marks a specific dish or course plated
+  // Chef marks a specific dish or an entire guest sub-order ticket plated
   public markDishPlated(orderId: string, dishUniqueId: string): boolean {
-    const order = this.orders.find((o) => o.id === orderId);
+    const order =
+      this.orders.find((o) => o.id === orderId) ||
+      this.orders.find((o) => o.aggregatedDishes.some((d) => d.uniqueId === dishUniqueId || d.guestSubOrderId === dishUniqueId));
     if (!order) return false;
 
-    const dish = order.aggregatedDishes.find((d) => d.uniqueId === dishUniqueId);
-    if (!dish) return false;
+    const matchingDishes = order.aggregatedDishes.filter(
+      (d) => d.uniqueId === dishUniqueId || d.guestSubOrderId === dishUniqueId
+    );
+    if (matchingDishes.length === 0) return false;
 
-    dish.status = 'plated';
+    for (const dish of matchingDishes) {
+      dish.status = 'plated';
+      dish.remainingSeconds = 0;
 
-    // Free the stove if it was on a stove
-    for (const stove of this.stoves) {
-      if (stove.activeDish?.uniqueId === dishUniqueId) {
-        stove.activeDish = null;
-        stove.remainingSeconds = 0;
+      // Free the stove if it was on a stove
+      for (const stove of this.stoves) {
+        if (stove.activeDish?.uniqueId === dish.uniqueId) {
+          stove.activeDish = null;
+          stove.remainingSeconds = 0;
+        }
+        stove.queue = stove.queue.filter((q) => q.uniqueId !== dish.uniqueId);
       }
-      stove.queue = stove.queue.filter((q) => q.uniqueId !== dishUniqueId);
+
+      const courseDishes = order.aggregatedDishes.filter((d) => d.course === dish.course);
+      const allCoursePlated = courseDishes.every((d) => d.status === 'plated' || d.status === 'delivered');
+      if (allCoursePlated) {
+        order.courseStatuses[dish.course] = 'plated';
+      }
     }
 
-    // Check if whole course or entire order is plated
-    const courseDishes = order.aggregatedDishes.filter((d) => d.course === dish.course);
-    const allCoursePlated = courseDishes.every((d) => d.status === 'plated' || d.status === 'delivered');
-    if (allCoursePlated) {
-      order.courseStatuses[dish.course] = 'plated';
-    }
-
+    const firstDish = matchingDishes[0];
     const allDishesPlated = order.aggregatedDishes.every((d) => d.status === 'plated' || d.status === 'delivered');
     if (allDishesPlated) {
       order.isCompleted = true;
@@ -777,8 +812,8 @@ export class SynchroStateManager {
       type: 'course_plated',
       tableId: order.tableId,
       tableNumber: order.tableNumber,
-      course: dish.course,
-      message: `TABLE ${order.tableNumber}: ${dish.dishName} (${dish.course}) is PLATED! Deliver now.`,
+      course: firstDish.course,
+      message: `TABLE ${order.tableNumber}: ${firstDish.dishName} (${firstDish.course}) is PLATED! Deliver now.`,
       timestamp: new Date().toISOString(),
       read: false,
     });
@@ -831,12 +866,14 @@ export class SynchroStateManager {
           this.inventory[k] = Math.max(0, this.inventory[k] + add);
         }
       }
+      this.inventoryUpdatedAt = Date.now();
       this.syncLowStockAlerts();
       this.emitState();
       return true;
     }
     if (this.inventory[ingredient] !== undefined) {
       this.inventory[ingredient] = Math.max(0, this.inventory[ingredient] + amount);
+      this.inventoryUpdatedAt = Date.now();
       this.syncLowStockAlerts();
       this.emitState();
       return true;
@@ -913,6 +950,8 @@ export class SynchroStateManager {
     this.waiterNotifications = [];
     this.inventoryDeductions = [];
     this.startedTicketIds.clear();
+    this.resetEpoch = Date.now();
+    this.inventoryUpdatedAt = Date.now();
     this.syncLowStockAlerts();
     this.emitState();
   }

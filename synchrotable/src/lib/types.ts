@@ -19,6 +19,8 @@ export interface Table {
   activeOrderId: string | null;
   occupiedAt: string | null;
   activeDevices?: TableSessionDevice[]; // All phones currently recognized at this table
+  tableUpdatedAt?: number;
+  clearedAt?: number;
 }
 
 export type CourseType = 'Starter' | 'Main' | 'Dessert';
@@ -164,5 +166,8 @@ export interface SynchroGameState {
   aiPrediction: AIPrediction;
   revenue?: number;
   inventoryDeductions?: InventoryDeductionRecord[];
+  updatedAt?: number;
+  inventoryUpdatedAt?: number;
+  resetEpoch?: number;
 }
 

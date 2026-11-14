@@ -559,11 +559,8 @@ export default function DineEase() {
 
   const markTicketReady = (ticketId: string) => {
     setReadyLocalIds((prev) => ({ ...prev, [ticketId]: true }))
-    for (const o of state?.orders ?? []) {
-      for (const d of o.aggregatedDishes) {
-        if (d.guestSubOrderId === ticketId && d.status !== 'plated' && d.status !== 'delivered') platedDish(o.id, d.uniqueId)
-      }
-    }
+    const ord = (state?.orders ?? []).find((o) => o.guests.some((g) => g.id === ticketId))
+    platedDish(ord?.id ?? '', ticketId)
   }
 
   const sessionTableNo = session?.mode === 'dine' ? session.table : null
