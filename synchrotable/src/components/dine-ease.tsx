@@ -232,44 +232,17 @@ const MENU: MenuItem[] = [
 ]
 
 const TABLE_LAYOUT: { id: string; x: number; y: number; back: boolean }[] = [
-  { id: 'pizza', x: 20, y: 31, back: true },
+  { id: 'pizza', x: 20, y: 30, back: true },
   { id: 'alfredo-pasta', x: 50, y: 15, back: true },
-  { id: 'smash-burger', x: 80, y: 31, back: true },
-  { id: 'french-fries', x: 80, y: 69, back: false },
-  { id: 'choco-lava-cake', x: 50, y: 83, back: false },
-  { id: 'maggi', x: 20, y: 69, back: false },
+  { id: 'smash-burger', x: 80, y: 30, back: true },
+  { id: 'french-fries', x: 80, y: 66, back: false },
+  { id: 'choco-lava-cake', x: 50, y: 80, back: false },
+  { id: 'maggi', x: 20, y: 66, back: false },
 ]
 
 const COURSES: Course[] = ['Starters', 'Mains', 'Desserts', 'Drinks']
 
-const INITIAL_TICKETS: Ticket[] = [
-  {
-    id: 't4',
-    table: 4,
-    label: 'Table 4',
-    minutesAgo: 6,
-    status: 'cooking',
-    first: 'French Fries',
-    lines: [
-      { name: 'French Fries', course: 'Starters', qty: 2 },
-      { name: 'Alfredo Pasta', course: 'Mains', qty: 1 },
-      { name: 'Smash Burger', course: 'Mains', qty: 2 },
-      { name: 'Choco Lava Cake', course: 'Desserts', qty: 3 },
-    ],
-  },
-  {
-    id: 't2',
-    table: 2,
-    label: 'Table 2',
-    minutesAgo: 1,
-    status: 'cooking',
-    first: 'Choco Lava Cake',
-    lines: [
-      { name: 'Alfredo Pasta', course: 'Mains', qty: 2 },
-      { name: 'Choco Lava Cake', course: 'Desserts', qty: 2 },
-    ],
-  },
-]
+const INITIAL_TICKETS: Ticket[] = []
 
 // The restaurant has 4 tables in total.
 const INITIAL_TABLES: FloorTable[] = [
@@ -959,16 +932,16 @@ function UserSpace({
   const { scrollYProgress } = useScroll({ target: stageRef, offset: ['start start', 'end end'] })
   const progress = useSpring(scrollYProgress, { stiffness: 140, damping: 26, mass: 0.4 })
 
-  const tableTilt = useTransform(progress, [0, 0.6], [0, 48])
-  const tableScale = useTransform(progress, [0, 0.6], [0.88, 0.98])
-  const tableY = useTransform(progress, [0, 0.6], [0, 16])
-  const counterTilt = useTransform(progress, [0.05, 0.6], [0, -48])
-  const reveal = useTransform(progress, [0.2, 0.55], [0, 1])
+  const tableTilt = useTransform(progress, [0, 0.6], [0, 44])
+  const tableScale = useTransform(progress, [0, 0.6], [0.9, 0.98])
+  const tableY = useTransform(progress, [0, 0.6], [0, 12])
+  const counterTilt = useTransform(progress, [0.05, 0.6], [0, -44])
+  const reveal = useTransform(progress, [0, 0.3], [1, 1])
   const hintOpacity = useTransform(progress, [0, 0.12], [1, 0])
-  const headlineOpacity = useTransform(progress, [0.35, 0.65], [0, 1])
-  const frontLift = useTransform(progress, [0.1, 0.65], [0, 22])
-  const backLift = useTransform(progress, [0.1, 0.65], [0, 45])
-  const dishScale = useTransform(progress, [0, 0.6], [0.9, 1.0])
+  const headlineOpacity = useTransform(progress, [0, 0.35], [1, 1])
+  const frontLift = useTransform(progress, [0, 0.65], [45, 85])
+  const backLift = useTransform(progress, [0, 0.65], [60, 105])
+  const dishScale = useTransform(progress, [0, 0.6], [0.94, 1.02])
 
   const count = Object.values(cart).reduce((a, b) => a + b, 0)
   const total = Object.entries(cart).reduce((sum, [id, qty]) => {
@@ -1023,6 +996,7 @@ function UserSpace({
             >
               <div
                 aria-hidden
+                style={{ transform: 'translateZ(-50px)' }}
                 className="absolute inset-0 overflow-hidden rounded-full bg-[radial-gradient(circle_at_50%_40%,#432b1b_0%,#29190f_65%,#170e08_100%)] ring-8 ring-[#563824]/90 shadow-[inset_0_4px_32px_rgba(255,196,132,0.14),inset_0_-24px_48px_rgba(0,0,0,0.8)]"
               >
                 {/* Solid handcrafted walnut tabletop with subtle concentric inlay */}
@@ -1433,7 +1407,7 @@ function FloatingDish({
         scale,
         rotateX: counterTilt,
         transformStyle: 'preserve-3d',
-        transformOrigin: 'center center',
+        transformOrigin: 'center bottom',
       }}
       className="w-[min(17vw,106px)]"
     >
@@ -1448,15 +1422,15 @@ function FloatingDish({
       >
         <motion.div
           style={{ boxShadow: plateShadow }}
-          className="relative aspect-square w-full overflow-hidden rounded-full bg-transparent"
+          className="relative aspect-square w-full overflow-hidden rounded-full bg-stone-900 ring-2 ring-amber-200/25"
         >
-          <Image src={item.image} alt={item.name} fill sizes="120px" className="scale-105 object-cover" priority />
+          <Image src={item.image} alt={item.name} fill sizes="120px" className="scale-110 object-cover" priority />
         </motion.div>
         <motion.div
           style={{ opacity: reveal }}
-          className="mt-1.5 rounded-full bg-stone-950/90 px-2.5 py-0.5 text-center shadow-md ring-1 ring-white/15"
+          className="mt-2 rounded-full bg-stone-950/95 px-3 py-1 text-center shadow-[0_6px_16px_rgba(0,0,0,0.85)] ring-1 ring-amber-300/40"
         >
-          <p className="whitespace-nowrap text-[11px] font-semibold leading-tight text-stone-100">
+          <p className="whitespace-nowrap text-[11px] font-bold leading-tight text-white">
             {item.name} · <span className="text-amber-300">{formatPrice(item.price)}</span>
           </p>
         </motion.div>

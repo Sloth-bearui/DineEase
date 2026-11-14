@@ -854,8 +854,12 @@ export class SynchroStateManager {
     this.initializeStoves();
     this.inventory = { ...INITIAL_INVENTORY };
     this.orders = [];
+    this.revenue = 0;
     this.lowStockAlerts = [];
     this.waiterNotifications = [];
+    this.inventoryDeductions = [];
+    this.startedTicketIds.clear();
+    this.syncLowStockAlerts();
     this.emitState();
   }
 }
