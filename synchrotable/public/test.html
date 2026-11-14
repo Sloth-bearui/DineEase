@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SynchroTable - Backend Function Tester</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: #111827;
+      --border: #1f2937;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --red: #ef4444;
+      --green: #10b981;
+      --accent: #3b82f6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    body { background: var(--bg); color: var(--text); padding: 24px; font-size: 13px; line-height: 1.5; }
+    h1 { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    p.sub { color: var(--muted); margin-bottom: 20px; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-green { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+    .badge-red { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+    
+    .grid { display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .panel-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    
+    .btn-group { display: flex; flex-direction: column; gap: 8px; }
+    button {
+      background: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px 12px;
+      border-radius: 6px; cursor: pointer; text-align: left; font-size: 12px; transition: all 0.15s ease;
+    }
+    button:hover { background: #334155; border-color: #64748b; }
+    button.btn-primary { background: var(--red); border-color: #dc2626; font-weight: 600; }
+    button.btn-primary:hover { background: #dc2626; }
+    button.btn-outline { background: transparent; border-color: #475569; }
+    
+    .input-row { display: flex; gap: 6px; margin-top: 4px; }
+    input { background: #0f172a; border: 1px solid #334155; color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; flex: 1; }
+    
+    .status-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .mini-card { background: #0f172a; border: 1px solid var(--border); padding: 12px; border-radius: 6px; }
+    .mini-card h4 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    .mini-card .val { font-size: 18px; font-weight: 700; color: #fff; }
+    
+    .tables-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
+    .table-box { padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border); }
+    .table-vacant { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.4); color: #34d399; }
+    .table-occupied { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.5); color: #f87171; font-weight: bold; }
+    
+    .stove-box { background: #0b1120; border: 1px solid var(--border); padding: 10px; border-radius: 6px; margin-bottom: 8px; }
+    .stove-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 4px; }
+    .progress-bar { height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+    .progress-fill { height: 100%; background: var(--red); transition: width 0.3s ease; }
+    
+    pre { background: #05070e; border: 1px solid #1e293b; padding: 12px; border-radius: 6px; overflow: auto; max-height: 260px; font-size: 11px; color: #a5b4fc; }
+    .log-item { padding: 4px 0; border-bottom: 1px solid #1e293b; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <div>
+      <h1>⚡ SynchroTable Backend Function Tester</h1>
+      <p class="sub">Live Real-time Socket.io engine & custom logic verifier on port 3001</p>
+    </div>
+    <div id="connBadge" class="badge badge-red">Connecting to WebSockets...</div>
+  </div>
+
+  <div class="status-cards">
+    <div class="mini-card">
+      <h4>Occupied Tables</h4>
+      <div class="val" id="occTables">0 / 6</div>
+    </div>
+    <div class="mini-card">
+      <h4>Active Master Orders</h4>
+      <div class="val" id="activeOrders">0</div>
+    </div>
+    <div class="mini-card">
+      <h4>Virtual Stoves Busy</h4>
+      <div class="val" id="stovesBusy">0 / 3</div>
+    </div>
+    <div class="mini-card">
+      <h4>Low Stock Alerts</h4>
+      <div class="val" id="alertCount">0</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Action Controls -->
+    <div class="panel">
+      <div class="panel-title">🕹️ Trigger Backend Functions</div>
+      
+      <div class="btn-group">
+        <label style="color: #94a3b8; font-size: 11px; font-weight: bold;">HACKATHON DEMO SIMULATION</label>
+        <button class="btn-primary" onclick="triggerSimulateFriends()">
+          👥 Simulate 3 Friends Ordering (Table 4)
+          <div style="font-size: 10px; opacity: 0.8; margin-top: 2px;">Tests: "Go Dutch" merge, student discount, inventory deduction & stove queue</div>
+        </button>
+
+        <button onclick="advanceCookTimers(5)">
+          ⏩ Advance Cook Timers (+5 sec)
+          <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Ticks stove clock to finish cooking & trigger Waiter course plated alert</div>
+        </button>
+
+        <label style="color: #94a3b8; font-size: 11px; font-weight: bold; margin-top: 8px;">TABLE OCCUPANCY & SCAN</label>
+        <div class="input-row">
+          <input type="text" id="scanTableInput" value="T-04" placeholder="Table ID (e.g. T-04)" />
+          <button style="flex: initial;" onclick="triggerTableScan()">Scan QR</button>
+        </div>
+
+        <div class="input-row">
+          <input type="text" id="clearTableInput" value="T-04" placeholder="Table ID (e.g. T-04)" />
+          <button style="flex: initial;" onclick="triggerClearTable()">Clear Table</button>
+        </div>
+
+        <label style="color: #94a3b8; font-size: 11px; font-weight: bold; margin-top: 8px;">STUDENT DISCOUNT VALIDATOR</label>
+        <div class="input-row">
+          <input type="email" id="studentEmailInput" value="alex@stanford.edu" placeholder="e.g. alex@stanford.edu" />
+          <button style="flex: initial;" onclick="validateStudentEmail()">Verify</button>
+        </div>
+        <div id="studentResult" style="font-size: 11px; color: #38bdf8; min-height: 16px;"></div>
+
+        <label style="color: #94a3b8; font-size: 11px; font-weight: bold; margin-top: 8px;">RESTOCK RAW MATERIALS</label>
+        <div class="input-row">
+          <button onclick="restock('coffeeBeansGrams', 500)">+500g Coffee</button>
+          <button onclick="restock('patties', 10)">+10 Patties</button>
+          <button onclick="restock('sourdoughSlices', 20)">+20 Slices</button>
+        </div>
+
+        <label style="color: #94a3b8; font-size: 11px; font-weight: bold; margin-top: 8px;">STATE MAINTENANCE</label>
+        <button class="btn-outline" onclick="resetDemo()">🔄 Reset Demo State</button>
+      </div>
+    </div>
+
+    <!-- Live Telemetry -->
+    <div>
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-title">🪑 2D Floor Plan (6 Synchronized Tables)</div>
+        <div class="tables-strip" id="tablesGrid"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-title">🔥 Virtual Stove CPU Threads (Least Busy Scheduling Model)</div>
+        <div id="stovesContainer"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-title">📦 Live Raw Material Inventory & Depletion</div>
+        <div id="inventoryContainer" style="display: flex; gap: 12px; flex-wrap: wrap;"></div>
+        <div id="alertsContainer" style="margin-top: 8px;"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-title">🔔 Waiter & Course Alerts Stream</div>
+        <div id="notificationsContainer" style="max-height: 120px; overflow-y: auto;"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">📋 Raw State Inspector (JSON)</div>
+        <pre id="rawState">Waiting for socket snapshot...</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let currentState = null;
+
+    socket.on('connect', () => {
+      const badge = document.getElementById('connBadge');
+      badge.textContent = 'Socket.io Connected (' + socket.id.slice(0, 5) + ')';
+      badge.className = 'badge badge-green';
+    });
+
+    socket.on('disconnect', () => {
+      const badge = document.getElementById('connBadge');
+      badge.textContent = 'Disconnected';
+      badge.className = 'badge badge-red';
+    });
+
+    socket.on('synchro_state_updated', (state) => {
+      currentState = state;
+      renderState(state);
+    });
+
+    socket.on('student_verification_result', (res) => {
+      const el = document.getElementById('studentResult');
+      el.textContent = (res.isValid ? '✅ ' : '❌ ') + res.message;
+      el.style.color = res.isValid ? '#34d399' : '#f87171';
+    });
+
+    function renderState(state) {
+      if (!state) return;
+
+      // Summary
+      const occupiedCount = state.tables.filter(t => t.status === 'occupied').length;
+      document.getElementById('occTables').textContent = `${occupiedCount} / 6`;
+      document.getElementById('activeOrders').textContent = state.orders.length;
+      
+      const busyStoves = state.stoves.filter(s => s.activeDish !== null).length;
+      document.getElementById('stovesBusy').textContent = `${busyStoves} / 3`;
+      document.getElementById('alertCount').textContent = state.lowStockAlerts.length;
+
+      // Tables
+      const tablesGrid = document.getElementById('tablesGrid');
+      tablesGrid.innerHTML = state.tables.map(t => `
+        <div class="table-box ${t.status === 'occupied' ? 'table-occupied' : 'table-vacant'}">
+          <div style="font-size: 14px;">T-${t.number}</div>
+          <div style="font-size: 11px; text-transform: uppercase;">${t.status}</div>
+          ${t.status === 'occupied' ? `<div style="font-size: 10px; margin-top: 2px;">👥 ${t.guestCount} guests</div>` : ''}
+        </div>
+      `).join('');
+
+      // Stoves
+      const stovesContainer = document.getElementById('stovesContainer');
+      stovesContainer.innerHTML = state.stoves.map(s => {
+        const dish = s.activeDish;
+        const progress = dish ? Math.round(((s.totalDurationSeconds - s.remainingSeconds) / s.totalDurationSeconds) * 100) : 0;
+        return `
+          <div class="stove-box">
+            <div class="stove-header">
+              <span>${s.name}</span>
+              <span style="color: ${dish ? '#f87171' : '#34d399'}; font-size: 11px;">
+                ${dish ? `COOKING: ${dish.dishName} (${s.remainingSeconds}s left)` : 'IDLE'}
+              </span>
+            </div>
+            ${dish ? `
+              <div style="font-size: 11px; color: #94a3b8;">
+                Guest: <strong style="color: #fff;">${dish.guestName}</strong> • Course: <strong>${dish.course}</strong>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progress}%;"></div>
+              </div>
+            ` : ''}
+            ${s.queue.length > 0 ? `
+              <div style="font-size: 10px; color: #cbd5e1; margin-top: 6px;">
+                Queued dishes (${s.queue.length}): ${s.queue.map(q => q.dishName).join(', ')}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      // Inventory
+      const invContainer = document.getElementById('inventoryContainer');
+      invContainer.innerHTML = Object.entries(state.inventory).map(([k, v]) => `
+        <div style="background: #0f172a; border: 1px solid #1e293b; padding: 6px 12px; border-radius: 6px; font-size: 11px;">
+          <div style="color: #94a3b8;">${k}</div>
+          <div style="font-weight: 700; font-size: 14px; color: ${v < 15 ? '#f87171' : '#fff'};">${v}</div>
+        </div>
+      `).join('');
+
+      // Alerts
+      const alertsContainer = document.getElementById('alertsContainer');
+      alertsContainer.innerHTML = state.lowStockAlerts.map(a => `
+        <div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; padding: 6px 10px; border-radius: 6px; font-size: 11px; margin-top: 4px;">
+          ⚠️ ${a.message}
+        </div>
+      `).join('');
+
+      // Waiter Notifications
+      const notifsContainer = document.getElementById('notificationsContainer');
+      notifsContainer.innerHTML = state.waiterNotifications.slice(0, 6).map(n => `
+        <div class="log-item">
+          <span style="color: #38bdf8;">[${new Date(n.timestamp).toLocaleTimeString()}]</span> ${n.message}
+        </div>
+      `).join('') || '<div style="color: #64748b; font-size: 11px;">No waiter alerts yet.</div>';
+
+      // Raw json
+      document.getElementById('rawState').textContent = JSON.stringify(state, null, 2);
+    }
+
+    function triggerSimulateFriends() {
+      socket.emit('simulate_friends_ordering', { tableId: 'T-04' });
+    }
+
+    function advanceCookTimers(sec) {
+      socket.emit('advance_cook_timers', { seconds: sec });
+    }
+
+    function triggerTableScan() {
+      const tableId = document.getElementById('scanTableInput').value.trim();
+      socket.emit('table_scan', { tableId, guestCount: 2 });
+    }
+
+    function triggerClearTable() {
+      const tableId = document.getElementById('clearTableInput').value.trim();
+      socket.emit('clear_table', { tableId });
+    }
+
+    function validateStudentEmail() {
+      const email = document.getElementById('studentEmailInput').value.trim();
+      socket.emit('verify_student_email', { email });
+    }
+
+    function restock(ingredient, amount) {
+      socket.emit('restock_inventory', { ingredient, amount });
+    }
+
+    function resetDemo() {
+      socket.emit('reset_demo_state');
+    }
+  </script>
+</body>
+</html>
+
