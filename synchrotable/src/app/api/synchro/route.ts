@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSynchroManager } from '@/lib/stateManager';
 import { CLOUD_SYNC_URL, toCompactSyncPayload } from '@/lib/synchroMerge';
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
-
 const noStoreHeaders = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
 };
@@ -58,7 +55,8 @@ async function pushManagerStateToCloud() {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  void req.nextUrl.searchParams.get('t');
   const manager = getSynchroManager();
   manager.loadSnapshotIfNewer();
   // If this serverless instance is cold or hasn't synced in the last 2s, pull latest cloud state

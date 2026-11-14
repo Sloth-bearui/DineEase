@@ -963,7 +963,11 @@ declare global {
 }
 
 export function getSynchroManager(): SynchroStateManager {
-  if (!global.__synchroStateManager) {
+  if (
+    !global.__synchroStateManager ||
+    typeof global.__synchroStateManager.loadSnapshotIfNewer !== 'function' ||
+    typeof global.__synchroStateManager.absorbClientState !== 'function'
+  ) {
     global.__synchroStateManager = new SynchroStateManager();
   }
   return global.__synchroStateManager;

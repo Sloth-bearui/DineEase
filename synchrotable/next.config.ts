@@ -9,8 +9,6 @@ const lanIps = Object.values(os.networkInterfaces())
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [...lanIps, "*.lhr.life", "*.app.lhr.life", "dfbf3652eeb222.app.lhr.life"],
-  cacheComponents: true,
-  partialPrefetching: true,
   turbopack: {
     rules: {
       "*.css": {
